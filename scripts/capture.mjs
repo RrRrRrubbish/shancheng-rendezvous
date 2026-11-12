@@ -1,0 +1,34 @@
+import { chromium,expect } from '@playwright/test';
+import { mkdir,writeFile } from 'node:fs/promises';
+await mkdir('artifacts/v0.6',{recursive:true});
+const browser=await chromium.launch({channel:'chrome',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+const page=await browser.newPage({viewport:{width:1440,height:1000},deviceScaleFactor:1}),errors=[],screenshots=[];
+page.on('pageerror',e=>errors.push(String(e)));page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
+const capture=async name=>{const path='artifacts/v0.6/'+name+'.png';await page.screenshot({path,fullPage:true});screenshots.push(path);};
+const api=async(action,...args)=>page.evaluate(({action,args})=>window.__journey[action](...args),{action,args});
+const load=async id=>{await api('load',id);await page.getByRole('button',{name:/出发，慢慢走/}).click();await page.waitForTimeout(180);};
+const settle=()=>page.waitForTimeout(850);
+try{
+ await page.goto('http://127.0.0.1:5173/?test=1');await page.waitForFunction(()=>window.__journey);await capture('01-cover');
+ await api('unlockAll');await load('liziba');await capture('liziba-start');
+ await page.keyboard.press('KeyV');await settle();await capture('liziba-overview');await page.keyboard.press('KeyV');
+ await api('place','terrace',[-24,6,-5],65);await settle();await capture('liziba-origin-platform');
+ await page.keyboard.press('KeyE');await api('advance',4.5);await settle();await capture('liziba-ride');
+ await api('advance',12);await settle();await capture('liziba-arrival-platform');
+ await api('place','liziba-plaza',[12,0,16],70);await settle();await capture('liziba-ground-lookback');
+ const tiltUp=async()=>{const b=await page.locator('canvas').boundingBox();await page.mouse.move(b.x+b.width*.6,b.y+b.height*.7);await page.mouse.down();await page.mouse.move(b.x+b.width*.6,b.y-300,{steps:12});await page.mouse.up();await settle();};
+ await tiltUp();await capture('liziba-look-up');await page.keyboard.press('KeyR');
+ await load('crown-escalator');await capture('crown-start');await page.keyboard.press('KeyV');await settle();await capture('crown-overview');await page.keyboard.press('KeyV');
+ await api('place','caiyuanba',[2,0,7],70);await page.keyboard.press('KeyE');await api('advance',3);await settle();await capture('crown-hall');
+ await api('advance',12);await api('place','crown-mid',[-17,3,-1],55);await settle();await capture('crown-mid-lanes');
+ await api('place','crown-turn',[-26,5.5,7],55);await settle();await capture('crown-fold-discovery');
+ await load('yangtze-cableway');await api('place','north-station',[1,6,7],70);await page.keyboard.press('KeyE');await api('advance',4);await settle();await capture('cableway-ride');
+ await api('advance',12);await settle();await capture('cableway-arrival');
+ await load('huangjuewan');await page.keyboard.press('KeyV');await settle();await capture('huangjuewan-overview');await page.keyboard.press('KeyV');await api('place','junction-n',[0,20,0],70);await settle();await capture('huangjuewan-front');
+ const box=await page.locator('canvas').boundingBox();await page.mouse.move(box.x+180,box.y+350);await page.mouse.down();await page.mouse.move(box.x+810,box.y+350,{steps:15});await page.mouse.up();await settle();await capture('huangjuewan-back');
+ await api('place','junction-g',[22,10,-8],70);await page.keyboard.press('KeyR');await settle();await tiltUp();await capture('huangjuewan-look-up');
+ await page.getByRole('button',{name:'设置',exact:true}).click();await page.getByLabel('轻量画质',{exact:true}).check();await page.getByRole('button',{name:'保存并返回',exact:true}).click();await settle();await capture('huangjuewan-low-quality');
+ await expect(page.locator('canvas')).toHaveAttribute('data-camera','follow');expect(errors).toEqual([]);
+ const report={date:new Date().toISOString(),screenshots,errors,note:'Development fixtures used for representative scene/ride captures. Engineering screenshots, not proof of real geographical accuracy or final cover artwork.'};
+ await writeFile('artifacts/v0.6/screenshots.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
+}finally{await browser.close();}

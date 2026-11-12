@@ -1,0 +1,28 @@
+{
+  "name": "shancheng-rendezvous",
+  "version": "0.6.0",
+  "private": true,
+  "type": "module",
+  "description": "山城赴约 · 重庆地标主题键盘与触摸探索小游戏",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:lan": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "tsc --noEmit",
+    "check:pages": "node scripts/check-pages.mjs"
+  },
+  "dependencies": {
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/node": "24.19.2",
+    "@types/three": "0.187.0",
+    "typescript": "~5.9.3",
+    "vite": "8.3.6",
+    "vitest": "5.1.0"
+  }
+}
