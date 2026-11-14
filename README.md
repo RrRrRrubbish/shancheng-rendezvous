@@ -2,7 +2,7 @@
 
 以重庆立体山城为主题的浏览器探索小游戏。亲自走过街巷和梯道，搭乘直梯、扶梯、单轨与索道，管理100点体力，完成四次赴约。不限时，沿途发现自愿探索。
 
-在线试玩：[山城赴约](https://rrrrrrubbish.github.io/shancheng-rendezvous/)。电脑和手机均可通过链接打开，手机建议横屏。
+在线试玩：[山城赴约](https://patience2268.github.io/shancheng-rendezvous/)。电脑和手机均可通过链接打开，手机建议横屏。
 
 ## 操作
 
@@ -31,8 +31,6 @@ npm ci
 npm run dev
 ```
 
-默认开发地址为 http://127.0.0.1:5173。局域网手机测试可执行 `npm run dev:lan`，然后在同一网络的手机上打开终端显示的Network地址。
-
 ```sh
 npm test
 npm run build
@@ -40,11 +38,11 @@ npm run check:pages
 npm run preview
 ```
 
-生产预览默认 http://127.0.0.1:4173；dist需要HTTP服务。推荐支持WebGL的现代Chrome、Edge或Safari；可以在设置中切换轻量画质、减少动态效果和音量。真实手机表现取决于设备。
+推荐支持WebGL的现代Chrome、Edge或Safari；可以在设置中切换轻量画质、减少动态效果和音量。真实手机表现取决于设备。
 
 ## 自动部署
 
-推送main后，GitHub Actions使用锁定依赖安装、规则测试、类型检查和生产构建，再验证发布文件并部署到Pages。仓库子路径由PAGES_BASE_PATH配置，发布目录仅为dist。部署状态见 [Actions](https://github.com/RrRrRrubbish/shancheng-rendezvous/actions/workflows/pages.yml)。
+推送main后，GitHub Actions使用锁定依赖安装、规则测试、类型检查和生产构建，再验证发布文件并部署到Pages。仓库子路径由PAGES_BASE_PATH配置，发布目录仅为dist。部署状态见 [Actions](https://github.com/patience2268/shancheng-rendezvous/actions/workflows/pages.yml)。
 
 部署来源使用Settings → Pages → Build and deployment → Source → **GitHub Actions**。日常更新推送main即可，无需手动上传dist。
 
