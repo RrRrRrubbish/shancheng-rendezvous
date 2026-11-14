@@ -1,6 +1,6 @@
 {
   "name": "shancheng-rendezvous",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "description": "山城赴约 · 重庆地标主题键盘与触摸探索小游戏",
@@ -15,6 +15,7 @@
     "check:pages": "node scripts/check-pages.mjs"
   },
   "dependencies": {
+    "lucide": "1.73.0",
     "three": "0.187.0"
   },
   "devDependencies": {

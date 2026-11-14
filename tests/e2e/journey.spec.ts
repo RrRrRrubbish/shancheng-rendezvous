@@ -39,7 +39,7 @@ test('blur pauses movement and resume clears held keys',async({page})=>{
  const before=await state(page);await page.waitForTimeout(250);expect((await state(page)).stamina).toBe(before.stamina);
  await page.keyboard.up('KeyD');await page.getByRole('button',{name:/继续旅程/}).click();
  const after=await state(page);await page.waitForTimeout(200);expect((await state(page)).position).toEqual(after.position);
- await page.keyboard.down('ArrowRight');await page.waitForTimeout(150);await page.keyboard.up('ArrowRight');expect((await state(page)).stamina).toBeLessThan(after.stamina);
+ await page.keyboard.down('ArrowRight');await expect.poll(async()=>(await state(page)).stamina).toBeLessThan(after.stamina);await page.keyboard.up('ArrowRight');
 });
 test('E boards a lift and the passenger arrives without held input or stamina charge',async({page})=>{
  await start(page);await place(page,'quay',[-15,0,10],64);

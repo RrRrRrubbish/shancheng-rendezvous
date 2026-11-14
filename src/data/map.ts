@@ -26,8 +26,8 @@ export const LEVELS: Level[] = [
     ],
     transports: [
       { id: 'liziba-lift', name: '直梯', kind: 'lift', duration: 3,
-        stops: [{ name: '下层街巷', surface: 'quay', position: [-15, 0, 10] }, { name: '上层接驳步道', surface: 'skywalk', position: [-15, 6, 10] }],
-        path: [[-15, 0, 10], [-15, 6, 10]] },
+        stops: [{ name: '下层街巷', surface: 'quay', position: [-15, 0, 10], vehiclePosition: [-18.5, 0, 10] }, { name: '上层接驳步道', surface: 'skywalk', position: [-15, 6, 10], vehiclePosition: [-18.5, 6, 10] }],
+        path: [[-18.5, 0, 10], [-18.5, 6, 10]] },
       { id: 'liziba-rail', name: '2号线 · 佛图关—李子坝', kind: 'rail', duration: 10, recoveryGroup: 'line-2-demo',
         stops: [
           { name: '佛图关站', surface: 'terrace', position: [-24, 6, -5], vehiclePosition: [-24, 6.65, -9.8] },

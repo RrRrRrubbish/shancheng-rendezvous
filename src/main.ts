@@ -1,4 +1,6 @@
 import './styles.css';
+import { icon as sym } from './ui/icons';
+import { enterLandscape, leaveFullscreen } from './services/display';
 import { LEVELS, LEVEL_IDS, getLevel } from './data/map';
 import { Game } from './domain/game';
 import { COVER_IMAGE, MOBILE_COVER_IMAGE } from './data/assets';
@@ -14,25 +16,6 @@ import type { StorageLike } from './services/progress';
 import type { CityScene } from './scene/city';
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
-const sym=(name:string):string=>{
-  const paths:Record<string,string>={
-    mountain:'M2 19 9 6l4 7 3-5 6 11H2ZM9 6l2 5-3 1',
-    arrow:'M4 12h15m-6-6 6 6-6 6',
-    sound:'m11 5-5 4H3v6h3l5 4V5Zm5 3a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14',
-    mute:'m11 5-5 4H3v6h3l5 4V5Zm5 4 6 6m0-6-6 6',
-    book:'M12 5C8 2 4 3 2 4v15c4-2 7-1 10 1m0-15c4-3 8-2 10-1v15c-4-2-7-1-10 1V5Z',
-    settings:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM9 3l-1 3-3 1-2 3 2 2-1 3 3 2 1 3h4l2-3 3-1 2-3-2-2 1-3-3-2-1-3H9Z',
-    pin:'M12 22s8-8 8-13A8 8 0 1 0 4 9c0 5 8 13 8 13Zm0-16a3 3 0 1 1 0 6 3 3 0 0 1 0-6',
-    leaf:'M20 3C10 2 3 7 5 14c3 7 14 5 15-11ZM4 21 16 8',
-    pause:'M8 5v14M16 5v14',close:'m6 6 12 12M18 6 6 18',check:'m5 12 4 4L20 5',
-    rail:'M5 17V5c0-4 14-4 14 0v12H5ZM5 10h14M8 21l2-4m4 0 2 4M8 14h1m6 0h1',
-    escalator:'M2 18h5L17 6h5M2 22h7L19 10h3M4 10h4l2 4M6 6h.1',
-    cable:'M2 4h20M12 4v5M6 9h12v11H6V9Zm0 6h12',
-    layers:'m2 8 10-5 10 5-10 5L2 8Zm0 5 10 5 10-5M2 18l10 5 10-5',
-    back:'M20 12H5m6-6-6 6 6 6',plus:'M4 12h16M12 4v16',minus:'M4 12h16',
-  };
-  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(paths[name]??paths.pin).split('@@').map(d=>'<path d="'+d+'"/>').join('')+'</svg>';
-};
 const btn=(text:string,action:string,cls='button'):string=>'<button class="'+cls+'" data-action="'+action+'">'+text+'</button>';
 const iconButton=(icon:string,label:string,action:string)=>'<button class="icon-button" aria-label="'+label+'" title="'+label+'" data-action="'+action+'">'+sym(icon)+'</button>';
 const escape=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
@@ -43,6 +26,8 @@ let progress=saved.progress;
 let game:Game|undefined,scene:CityScene|undefined,level:Level|undefined,touch:TouchControls|undefined;
 let panel='',page='cover',generation=0,phaseSeen='',accumulator=0,zoom=1;
 let uiInterval=0,toastUntil=0,finishedSaved=false,cutaway=false;
+let landscapeDismissed=false,displayBusy=false;
+let landscapeNote='横屏视野更开阔，竖屏也能继续玩。';
 let discoveryQueue:string[]=[],cardDismissed=new Set<string>(),activeDiscovery:string|undefined;
 let lastEvent=0,feedbackGeneration=-1;
 let feedbackQueue:GameEvent[]=[],activeFeedback:{event:GameEvent;until:number}[]=[];
@@ -51,9 +36,9 @@ const keys=new Keyboard(()=>interact(),()=>togglePause(),()=>{if(game&&!panel&&[
 function clearInput():void { keys.clear();touch?.clear(); }
 function save():void {if(storage&&!writeProgress(storage,progress))toast('进度暂未保存，本次游玩仍可继续。');}
 function header():string {
-  return '<header class="topbar"><button class="brand" data-action="home">'+sym('mountain')+'<span>山城赴约<small>SHANCHENG RENDEZVOUS</small></span></button><div class="header-center"><span class="tiny-dot"></span> 渝你同行 · 城市探索</div><nav aria-label="全局操作">'+iconButton(progress.settings.muted?'mute':'sound','切换声音','sound')+iconButton('book','山城札记','journal')+iconButton('settings','设置','settings')+'</nav></header>';
+  return '<header class="topbar"><button class="brand" data-action="home">'+sym('mountain')+'<span>山城赴约<small>SHANCHENG RENDEZVOUS</small></span></button><div class="header-center"><span class="tiny-dot"></span> 渝你同行 · 城市探索</div><nav aria-label="全局操作">'+iconButton(progress.settings.muted?'mute':'sound','切换声音','sound')+iconButton('book','山城札记','journal')+iconButton('settings','设置','settings')+'<span class="mobile-display">'+iconButton('fullscreen','全屏横屏','display')+'</span>'+'</nav></header>';
 }
-function shell(body:string):void {document.body.classList.toggle('is-playing',page==='game');app.innerHTML=header()+body+'<div class="toast" role="status" aria-live="polite" hidden></div><div id="modal-root"></div>';}
+function shell(body:string):void {document.body.classList.toggle('is-playing',page==='game');app.innerHTML=header()+body+'<aside id="landscape-entry" class="landscape-entry" aria-label="显示方式" hidden><span id="landscape-note"></span>'+btn(sym('fullscreen')+' 全屏横屏','display','button secondary')+btn('继续竖屏','portrait','inline-button')+'</aside><div class="toast" role="status" aria-live="polite" hidden></div><div id="modal-root"></div>';updateDisplayEntry();}
 function attachCoverImage():void {
   if(!COVER_IMAGE)return;
   const poster=app.querySelector<HTMLElement>('.cover-poster');if(!poster)return;
@@ -71,7 +56,7 @@ function stopRun():void {
 }
 function cover():void {
   stopRun();page='cover';audio.pause(false);
-  shell('<main class="cover"><div class="cover-lines" aria-hidden="true"></div><div class="cover-meta"><span>CHONGQING · 29°33′N 106°33′E</span><span>山城漫游手册 / VOL. 02</span></div><section class="cover-copy"><p class="eyebrow">一座山城，四次赴约</p><h1>山城<span>赴约<i>。</i></span></h1><p class="cover-intro">路有高低，生活有温度。<br>亲自走一段山城路，找到你的抵达方式。</p><div class="cover-actions">'+btn('开启山城旅程 '+sym('arrow'),'start','button primary')+btn(progress.completed.length?'继续旅程':'选择目的地','levels','button text-button')+'</div><div class="cover-controls"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / 方向键 · 手机摇杆移动</span><span>'+sym('leaf')+' 100 点体力 · 不限时</span></div></section><section class="cover-poster" aria-label="四个目的地"><div class="poster-label">山 / 城 / 行 / 记 <span>FIND YOUR WAY</span></div><div class="poster-grid">'+LEVELS.map((l,i)=>'<button class="poster-card poster-'+i+'" data-action="levels"><span class="poster-number">0'+(i+1)+'</span><div class="poster-symbol">'+sym(['rail','escalator','cable','layers'][i])+'</div><h2>'+l.name+'</h2><span class="poster-caption">'+['楼中穿行','沿高差而上','越过一江风','读懂层层路'][i]+'</span></button>').join('')+'</div><div class="poster-foot"><span>看得见的地方，<br>总有一种走法。</span><span class="round-stamp">渝<br><small>重庆</small></span></div></section><footer class="cover-footer"><span>轻量城市探索 · 键盘与触摸</span><button data-action="about">关于作品与地标资料 '+sym('arrow')+'</button><span>v0.6.0 · 立体山城探索</span></footer></main>');
+  shell('<main class="cover"><div class="cover-lines" aria-hidden="true"></div><div class="cover-meta"><span>CHONGQING · 29°33′N 106°33′E</span><span>山城漫游手册 / VOL. 02</span></div><section class="cover-copy"><p class="eyebrow">一座山城，四次赴约</p><h1>山城<span>赴约<i>。</i></span></h1><p class="cover-intro">路有高低，生活有温度。<br>亲自走一段山城路，找到你的抵达方式。</p><div class="cover-actions">'+btn('开启山城旅程 '+sym('arrow'),'start','button primary')+btn(progress.completed.length?'继续旅程':'选择目的地','levels','button text-button')+'</div><div class="cover-controls"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / 方向键 · 手机摇杆移动</span><span>'+sym('leaf')+' 100 点体力 · 不限时</span></div></section><section class="cover-poster" aria-label="四个目的地"><div class="poster-label">山 / 城 / 行 / 记 <span>FIND YOUR WAY</span></div><div class="poster-grid">'+LEVELS.map((l,i)=>'<button class="poster-card poster-'+i+'" data-action="levels"><span class="poster-number">0'+(i+1)+'</span><div class="poster-symbol">'+sym(['rail','escalator','cable','layers'][i])+'</div><h2>'+l.name+'</h2><span class="poster-caption">'+['楼中穿行','沿高差而上','越过一江风','读懂层层路'][i]+'</span></button>').join('')+'</div><div class="poster-foot"><span>看得见的地方，<br>总有一种走法。</span><span class="round-stamp">渝<br><small>重庆</small></span></div></section><footer class="cover-footer"><span>轻量城市探索 · 键盘与触摸</span><button data-action="about">关于作品与地标资料 '+sym('arrow')+'</button><span>v0.7.0 · 立体山城探索</span></footer></main>');
   attachCoverImage();
 }
 function selectLevels():void {
@@ -103,10 +88,10 @@ async function enterLevel(id:LevelId):Promise<void> {
 }
 function renderGame():void {
   if(!level)return;
-  shell('<main class="game-layout"><aside class="journey-sidebar"><div class="chapter-overline"><span class="eyebrow">山城行记 / 0'+level.number+'</span><span>探索中</span></div><h1>'+level.name+'</h1><p class="chapter-subtitle">'+level.subtitle+'</p><div class="task-card"><span>'+sym('pin')+' 这一次的约定</span><h2>'+level.goalName+'</h2><p>'+level.intro+'</p>'+btn('查看任务与地图说明','mission','inline-button')+'</div><div class="sidebar-block"><h3>你的山城旅程 <span id="chapter-progress">'+progress.completed.length+' / 4</span></h3><div class="chapter-list">'+LEVELS.map((l,i)=>'<button data-action="level:'+l.id+'" class="chapter '+(l.id===level!.id?'active':'')+'" '+(i>=unlockedCount(progress)?'disabled':'')+'><span class="chapter-index">0'+l.number+'</span><span>'+l.name+'</span><span class="chapter-status">'+(progress.completed.includes(l.id)?'✓':i>=unlockedCount(progress)?'·':'↗')+'</span></button>').join('')+'</div></div><div class="sidebar-discovery"><span class="eyebrow">ALONG THE WAY</span><h3>顺路，认识重庆。</h3><p id="discovery-count">沿途发现 0 / 2</p>'+btn('翻开山城札记 '+sym('arrow'),'journal','inline-button')+'</div><div class="sidebar-bottom"><span class="tiny-dot"></span> 地标主题 · 局部简化 <button data-action="about">资料说明</button></div></aside><section class="game-stage"><div class="stage-top"><div><span class="eyebrow">第 0'+level.number+' 站 · '+level.name+'</span><p>赴约点 · '+level.goalName+'</p></div><div class="stamina-box"><div class="stamina-label">'+sym('leaf')+'<span>体力</span><strong id="stamina-value">100</strong><span>/ 100</span></div><div class="stamina-track" role="progressbar" aria-label="剩余体力" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><div id="stamina-fill"></div></div></div></div><div id="viewport" class="viewport" tabindex="0"><div class="scene-caption"><span id="surface-name"></span><small id="surface-layer"></small>'+(level.id==='huangjuewan'?'<small class="adaptation-badge">立交道路原型 · 步行改编</small>':'')+'</div><div id="event-feedback" class="event-feedback" role="status" aria-live="polite"></div><div id="floating-feedback" class="floating-feedback" aria-hidden="true"></div><div id="map-labels" class="map-labels" aria-hidden="true"></div><div class="viewport-tools">'+btn('总览 V','overview','view-button')+btn('居中 R','recenter','view-button')+iconButton('layers','切换剖面视图','cutaway')+iconButton('plus','放大场景','zoom-in')+iconButton('minus','缩小场景','zoom-out')+'</div><div class="map-legend"><span><i class="legend-goal"></i>赴约点</span><span><i class="legend-transport"></i>交通入口</span><span><i class="legend-discovery"></i>沿途发现</span></div><div id="interaction" class="interaction" hidden></div><div id="ride-banner" class="ride-banner" hidden></div><div id="discovery-card" class="discovery-card" hidden></div><div id="goal-compass" class="goal-compass"><span class="compass-arrow">➜</span><span class="compass-text"></span></div><div class="camera-help">拖动环绕 / 仰视 · V 总览 · R 居中</div><div class="touch-controls"><div id="move-stick" class="move-stick" role="group" aria-label="移动摇杆" aria-describedby="touch-help"><span class="joystick-ring"></span><span class="joystick-knob"></span><span class="joystick-caption">移动</span></div><span id="touch-help" class="touch-help">左侧移动 · 右侧拖动观察</span></div></div><footer class="game-toolbar"><div class="key-guide"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / <span class="arrow-keys">↑ ← ↓ →</span> 移动</span><span><kbd>E</kbd> 乘坐</span><span><kbd>Esc</kbd> 暂停</span></div><div>'+btn('行程','itinerary','view-button')+iconButton('book','打开行记','journal')+iconButton('back','回歇脚点','restore-confirm')+iconButton('pause','暂停旅程','pause')+'</div></footer></section></main>');
+  shell('<main class="game-layout"><aside class="journey-sidebar"><div class="chapter-overline"><span class="eyebrow">山城行记 / 0'+level.number+'</span><span>探索中</span></div><h1>'+level.name+'</h1><p class="chapter-subtitle">'+level.subtitle+'</p><div class="task-card"><span>'+sym('pin')+' 这一次的约定</span><h2>'+level.goalName+'</h2><p>'+level.intro+'</p>'+btn('查看任务与地图说明','mission','inline-button')+'</div><div class="sidebar-block"><h3>你的山城旅程 <span id="chapter-progress">'+progress.completed.length+' / 4</span></h3><div class="chapter-list">'+LEVELS.map((l,i)=>'<button data-action="level:'+l.id+'" class="chapter '+(l.id===level!.id?'active':'')+'" '+(i>=unlockedCount(progress)?'disabled':'')+'><span class="chapter-index">0'+l.number+'</span><span>'+l.name+'</span><span class="chapter-status">'+(progress.completed.includes(l.id)?sym('check'):i>=unlockedCount(progress)?'·':sym('arrow'))+'</span></button>').join('')+'</div></div><div class="sidebar-discovery"><span class="eyebrow">ALONG THE WAY</span><h3>顺路，认识重庆。</h3><p id="discovery-count">沿途发现 0 / 2</p>'+btn('翻开山城札记 '+sym('arrow'),'journal','inline-button')+'</div><div class="sidebar-bottom"><span class="tiny-dot"></span> 地标主题 · 局部简化 <button data-action="about">资料说明</button></div></aside><section class="game-stage"><div class="stage-top"><div><span class="eyebrow">第 0'+level.number+' 站 · '+level.name+'</span><p>赴约点 · '+level.goalName+'</p></div><div class="stamina-box"><div class="stamina-label">'+sym('leaf')+'<span>体力</span><strong id="stamina-value">100</strong><span>/ 100</span></div><div class="stamina-track" role="progressbar" aria-label="剩余体力" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><div id="stamina-fill"></div></div></div></div><div id="viewport" class="viewport" tabindex="0"><div class="scene-caption"><span id="surface-name"></span><small id="surface-layer"></small>'+(level.id==='huangjuewan'?'<small class="adaptation-badge">立交道路原型 · 步行改编</small>':'')+'</div><div id="event-feedback" class="event-feedback" role="status" aria-live="polite"></div><div id="floating-feedback" class="floating-feedback" aria-hidden="true"></div><div id="map-labels" class="map-labels" aria-hidden="true"></div><div class="viewport-tools">'+btn('总览 V','overview','view-button')+btn('居中 R','recenter','view-button')+iconButton('layers','切换剖面视图','cutaway')+iconButton('plus','放大场景','zoom-in')+iconButton('minus','缩小场景','zoom-out')+'</div><div class="map-legend"><span><i class="legend-goal"></i>赴约点</span><span><i class="legend-transport"></i>交通入口</span><span><i class="legend-discovery"></i>沿途发现</span></div><div id="interaction" class="interaction" hidden></div><div id="ride-banner" class="ride-banner" hidden></div><div id="discovery-card" class="discovery-card" hidden></div><div id="goal-compass" class="goal-compass"><span class="compass-arrow">'+sym('arrow')+'</span><span class="compass-text"></span></div><div class="camera-help">拖动环绕 / 仰视 · V 总览 · R 居中</div><div class="touch-controls"><div id="move-stick" class="move-stick" role="group" aria-label="移动摇杆" aria-describedby="touch-help"><span class="joystick-ring"></span><span class="joystick-knob"></span><span class="joystick-caption">移动</span></div><span id="touch-help" class="touch-help">左侧移动 · 右侧拖动观察</span></div></div><footer class="game-toolbar"><div class="key-guide"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / <span class="arrow-keys">↑ ← ↓ →</span> 移动</span><span><kbd>E</kbd> 乘坐</span><span><kbd>Esc</kbd> 暂停</span></div><div>'+btn('行程','itinerary','view-button')+iconButton('book','打开行记','journal')+iconButton('back','回歇脚点','restore-confirm')+iconButton('pause','暂停旅程','pause')+'</div></footer></section></main>');
   touch=new TouchControls(document.querySelector<HTMLElement>('#move-stick')!);
   const labels=document.querySelector('#map-labels')!;
-  labels.innerHTML='<span class="world-label actor-label" data-label="actor">你在这里</span><span class="world-label goal-label" data-label="goal">'+sym('pin')+' '+level.goalName+'</span>'+level.transports.flatMap(t=>t.stops.map((s,i)=>'<span class="world-label transport-label" data-label="'+t.id+':'+i+'">'+sym(t.kind==='rail'?'rail':t.kind==='cableway'?'cable':t.kind==='escalator'?'escalator':'layers')+' '+(t.kind==='rail'?s.name:t.kind==='escalator'?s.name:t.name)+'</span>')).join('')+level.checkpoints.map(cp=>'<span class="world-label rest-label" data-rest="'+cp.id+'">✚ 歇脚点 · 经过恢复 15</span>').join('')+level.discoveries.map(d=>'<span class="world-label discovery-marker-label" data-discovery-marker="'+d.id+'">✦ 可选 · 地点行记</span>').join('');
+  labels.innerHTML='<span class="world-label actor-label" data-label="actor">你在这里</span><span class="world-label goal-label" data-label="goal">'+sym('pin')+' '+level.goalName+'</span>'+level.transports.flatMap(t=>t.stops.map((s,i)=>'<span class="world-label transport-label" data-label="'+t.id+':'+i+'">'+sym(t.kind==='rail'?'rail':t.kind==='cableway'?'cable':t.kind==='escalator'?'escalator':'lift')+' '+(t.kind==='rail'?s.name:t.kind==='escalator'?s.name:t.name)+'</span>')).join('')+level.checkpoints.map(cp=>'<span class="world-label rest-label" data-rest="'+cp.id+'">'+sym('plus')+' 歇脚点 · 经过恢复 15</span>').join('')+level.discoveries.map(d=>'<span class="world-label discovery-marker-label" data-discovery-marker="'+d.id+'">'+sym('spark')+' 可选 · 地点行记</span>').join('');
 }
 function frame(dt:number):void {
   if(!game)return;
@@ -155,7 +140,7 @@ function updateUI(force=false):void {
     const identity=s.ride.generation+':'+s.ride.id+':'+progress.settings.reducedMotion;
     if(ride.dataset.ride!==identity){
       ride.dataset.ride=identity;
-      ride.innerHTML='<span>'+sym(t.kind==='rail'?'rail':t.kind==='cableway'?'cable':'escalator')+' 正在'+t.name+' · 松开按键，安心看风景</span><div class="ride-track"><i></i></div>'+((s.ride.canSkip||progress.settings.reducedMotion)?btn('略过乘坐片段','skip','inline-button'):'');
+      ride.innerHTML='<span>'+sym(t.kind==='rail'?'rail':t.kind==='cableway'?'cable':t.kind==='lift'?'lift':'escalator')+' 正在'+t.name+' · 松开按键，安心看风景</span><div class="ride-track"><i></i></div>'+((s.ride.canSkip||progress.settings.reducedMotion)?btn('略过乘坐片段','skip','inline-button'):'');
     }
     const bar=ride.querySelector<HTMLElement>('.ride-track i');if(bar)bar.style.width=Math.round(s.ride.elapsed/s.ride.duration*100)+'%';
   }
@@ -176,7 +161,7 @@ function updateLabels():void {
     const distance=Math.hypot(cp.position[0]-game.state.position[0],cp.position[2]-game.state.position[2]);
     const p=scene.project(cp.position,2.1),used=game.state.consumedRests.includes(cp.id);
     el.hidden=!p.visible||p.y<topInset||(scene.viewMode==='follow'&&distance>18);el.classList.toggle('rest-used',used);
-    el.textContent=used?'✓ 本次已歇脚':'✚ 歇脚点 · 经过恢复 15';el.style.left=p.x+'px';el.style.top=p.y+'px';
+    const restLabel=sym(used?'check':'plus')+(used?' 本次已歇脚':' 歇脚点 · 经过恢复 15');if(el.dataset.used!==String(used)){el.innerHTML=restLabel;el.dataset.used=String(used);}el.style.left=p.x+'px';el.style.top=p.y+'px';
   }
   for(const d of level.discoveries){
     const el=document.querySelector<HTMLElement>('[data-discovery-marker="'+d.id+'"]');if(!el)continue;
@@ -220,7 +205,7 @@ function updateFeedback():void {
     if(eventRoot.dataset.ids!==ids){
       eventRoot.dataset.ids=ids;
       eventRoot.innerHTML=activeFeedback.map(({event:e})=>'<div class="event-notice '+(e.kind==='discovery'?'event-discovery':'event-rest')+'" data-event-id="'+e.id+'"><span class="event-icon">'+sym(e.kind==='discovery'?'book':'leaf')+'</span><div><strong>'+(e.kind==='discovery'?'沿途发现 · 可选':(e.amount??0)>0?'体力 +'+Number(e.amount!.toFixed(1)):'体力已满')+'</strong><p>'+escape(e.text)+'</p></div></div>').join('');
-      if(floating)floating.innerHTML=activeFeedback.map(({event:e})=>'<span class="world-feedback '+(e.kind==='discovery'?'floating-discovery':'floating-rest')+'" data-event-position="'+e.id+'">'+(e.kind==='discovery'?'✦ 新的地点行记':(e.amount??0)>0?'✚ 体力 +'+Number(e.amount!.toFixed(1)):'✓ 体力已满 · 已记录')+'</span>').join('');
+      if(floating)floating.innerHTML=activeFeedback.map(({event:e})=>'<span class="world-feedback '+(e.kind==='discovery'?'floating-discovery':'floating-rest')+'" data-event-position="'+e.id+'">'+(e.kind==='discovery'?sym('spark')+' 新的地点行记':(e.amount??0)>0?sym('plus')+' 体力 +'+Number(e.amount!.toFixed(1)):sym('check')+' 体力已满 · 已记录')+'</span>').join('');
     }
   }
 }
@@ -238,7 +223,7 @@ function discoveryById(id:string):Discovery|undefined { return LEVELS.flatMap(l=
 function discoveryMedia(d:Discovery,expanded=false):string {
   const media=d.mediaId?LANDMARK_MEDIA[d.mediaId]:undefined;
   if(!media?.src)return '<div class="media-unavailable"><span>'+sym('pin')+'</span><p>地点行记</p><small>展开行记可查看地标实景资料</small></div>';
-  return '<figure class="landmark-media"><img src="'+import.meta.env.BASE_URL+escape(media.src)+'" alt="'+escape(media.alt)+'" '+(expanded?'':'loading="lazy"')+'><figcaption>'+(media.kind==='photo'?'实景照片':'AI 场景示意 · 非实景照片')+' · '+escape(media.author)+' · '+escape(media.license)+'</figcaption></figure>';
+  return '<figure class="landmark-media"><img src="'+import.meta.env.BASE_URL+escape(media.src)+'" alt="'+escape(media.alt)+'" '+(expanded?'':'loading="lazy"')+'><figcaption>'+(media.kind==='photo'?'实景照片':'AI 场景示意 · 非实景照片')+' · '+[media.author,media.license].filter(Boolean).map(escape).join(' · ')+'</figcaption></figure>';
 }
 function updateDiscoveryCard():void {
   if(!game)return;
@@ -267,14 +252,42 @@ function showDiscovery(id:string):void {
     const source=Object.values(CULTURAL_SOURCES).find(s=>s.url===d.source);
     modal(d.title,'沿途发现 · 地点行记',discoveryMedia(d,true)+'<p class="dialog-lead">'+escape(d.text)+'</p>'+(source?'<p class="small muted">'+escape(source.publisher)+' · '+source.published+'<br>'+escape(source.title)+'</p>':'')+'<a href="'+d.source+'" target="_blank" rel="noopener noreferrer">查看地标实景资料 ↗</a>',btn('收好行记，继续','close','button primary'),true,true);
 }
+function updateDisplayEntry():void {
+  const mobile=matchMedia('(any-pointer:coarse)').matches,portrait=matchMedia('(orientation:portrait)').matches;
+  const entry=document.querySelector<HTMLElement>('#landscape-entry');
+  if(entry)entry.hidden=!mobile||!portrait||landscapeDismissed||!!panel||page==='loading';
+  setText('#landscape-note',landscapeNote);
+  const button=document.querySelector<HTMLButtonElement>('.mobile-display button');
+  if(button){
+    const active=!!document.fullscreenElement;
+    button.disabled=displayBusy;button.dataset.action=active?'exit-display':'display';button.setAttribute('aria-label',active?'退出全屏':'全屏横屏');button.title=active?'退出全屏':'全屏横屏';
+    if(button.dataset.active!==String(active)){button.innerHTML=sym(active?'minimize':'fullscreen');button.dataset.active=String(active);}
+  }
+  const request=document.querySelector<HTMLButtonElement>('#landscape-entry [data-action="display"]');
+  if(request)request.disabled=displayBusy;
+}
+async function requestLandscape(exit=false):Promise<void> {
+  if(displayBusy)return;
+  displayBusy=true;clearInput();updateDisplayEntry();
+  try {
+    if(exit){await leaveFullscreen();return;}
+    const result=await enterLandscape();
+    if(!result.locked){
+      landscapeNote='可手动旋转手机，或继续竖屏游玩。';
+      toast(result.fullscreen?'已进入全屏；可手动旋转手机，也可继续竖屏。':'当前浏览器不支持自动全屏横屏，竖屏仍可正常游玩。');
+    }
+  } finally {displayBusy=false;clearInput();accumulator=0;updateDisplayEntry();}
+}
+window.addEventListener('resize',updateDisplayEntry);
+document.addEventListener('fullscreenchange',updateDisplayEntry);
 function toast(message:string):void {const el=document.querySelector<HTMLElement>('.toast');if(el){el.textContent=message;el.hidden=false;toastUntil=performance.now()+4200;}}
 function modal(title:string,eyebrow:string,body:string,actions:string,closable=true,wide=false):void {
   panel=panel||'state';if(touch)touch.enabled=false;keys.enabled=false;keys.viewEnabled=false;clearInput();game?.pause(true);audio.pause(true);
   document.querySelector('#modal-root')!.innerHTML='<div class="modal-scrim"><section class="dialog '+(wide?'dialog-wide':'')+'" role="dialog" aria-modal="true" aria-label="'+escape(title)+'">'+(closable?iconButton('close','关闭','close'):'')+'<p class="eyebrow">'+eyebrow+'</p><h2>'+title+'</h2><div class="dialog-body">'+body+'</div><div class="dialog-actions">'+actions+'</div></section></div>';
-  document.querySelector<HTMLElement>('.dialog button')?.focus();
+  document.querySelector<HTMLElement>('.dialog button')?.focus();updateDisplayEntry();
 }
 function closePanel():void {
-  panel='';document.querySelector('#modal-root')!.innerHTML='';clearInput();game?.pause(false);audio.pause(false);accumulator=0;
+  panel='';document.querySelector('#modal-root')!.innerHTML='';clearInput();game?.pause(false);audio.pause(false);accumulator=0;updateDisplayEntry();
   if(game&&['briefing','fatigued','success'].includes(game.state.phase))showRequired();
   else {keys.enabled=!!game;document.querySelector<HTMLElement>('#viewport')?.focus({preventScroll:true});}updateUI();
 }
@@ -317,6 +330,9 @@ function retry():void {if(!game)return;game.retry();phaseSeen='';finishedSaved=f
 app.addEventListener('click',e=>{
   const element=(e.target as HTMLElement).closest<HTMLElement>('[data-action]');if(!element||element.hasAttribute('disabled'))return;
   const action=element.dataset.action!;
+  if(action==='display'){void requestLandscape();return;}
+  if(action==='exit-display'){void requestLandscape(true);return;}
+  if(action==='portrait'){landscapeDismissed=true;updateDisplayEntry();return;}
   if(action==='sound'){
     progress.settings.muted=!progress.settings.muted;save();audio.apply(progress.settings);void audio.unlock(progress.settings);
     const b=app.querySelector('[data-action="sound"]');if(b)b.innerHTML=sym(progress.settings.muted?'mute':'sound');return;
@@ -374,6 +390,7 @@ if(import.meta.env.DEV&&new URLSearchParams(location.search).has('test')){
     load:(id:LevelId)=>enterLevel(id),
     pause:()=>openPanel('pause'),
     camera:()=>scene?.cameraInfo(),
+    signs:()=>scene?.signInfo(),
     auditCamera:()=>scene?.auditCamera(),
     road:(id:string)=>level?.network?structuredClone(compileRoads(level.network).roads.find(r=>r.road.id===id)?.points):undefined,
     network:()=>level?.network?structuredClone(level.network):undefined,

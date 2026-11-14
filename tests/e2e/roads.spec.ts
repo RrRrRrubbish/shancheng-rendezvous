@@ -75,7 +75,7 @@ test('the other three landmarks retain complete walking and transport routes wit
   const ride=async()=>{await page.keyboard.press('KeyE');await page.evaluate(()=>(window as any).__journey.advance(12));};
   for(const useLift of[false,true]){
     await load(page,'liziba');
-    if(useLift){await walk([-15,0,10]);await ride();await walk([-15,6,-5]);}else{await walk([-27,0,7]);await walk([-27,6,-5]);}
+    if(useLift){await walk([-23,0,12.5]);await walk([-15,0,12.5]);await walk([-15,0,10]);await ride();await walk([-15,6,-5]);}else{await walk([-27,0,7]);await walk([-27,6,-5]);}
     await walk([-24,6,-5]);await ride();await walk([19,6,-4]);await walk([19,0,12]);await walk([12,0,14]);await expect(page.getByRole('dialog')).toContainText('赴约成功');
   }
   for(const route of['escalator','short','fold']){

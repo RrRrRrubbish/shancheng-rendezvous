@@ -8,8 +8,11 @@ import type { CameraSolid } from './collision';
 import { samplePath } from '../domain/game';
 import { Walker } from './actor';
 import { CityEnvironment } from './environment';
+import { EscalatorModel, LiftModel } from './transport';
+import { createSign } from './signs';
 
 const C = { paper:'#f1ecdf',road:'#ede3ce',side:'#b3bd9a',teal:'#537b72',coral:'#d96d4c',gold:'#d2a55f',dark:'#3e5754',foliage:'#879b73',water:'#91b7ad' };
+const random=(n:number)=>{const v=Math.sin(n*127.1+311.7)*43758.5453;return v-Math.floor(v);};
 export class CityScene {
   readonly renderer: THREE.WebGLRenderer;
   readonly camera = new THREE.PerspectiveCamera(58,1,0.1,360);
@@ -25,6 +28,10 @@ export class CityScene {
   private dynamic = new THREE.Group();
   private passengerVehicles = new Map<string,THREE.Group>();
   private parkedVehiclePaths = new Map<string,Vec3[]>();
+  private lift?:LiftModel;
+  private escalator?:EscalatorModel;
+  private signLayer=document.createElement('div');
+  private signs:{object:THREE.Group;label:HTMLSpanElement}[]=[];
   private vehicles: { object:THREE.Group;path:Vec3[];duration:number;offset:number;rotation:number;service?:string }[] = [];
   private discs = new Map<string,THREE.Object3D>();
   private materials = new Map<string,THREE.MeshStandardMaterial>();
@@ -79,15 +86,15 @@ export class CityScene {
   setOverview(value:boolean):void { if(this.rideCamera)return;this.overview=value;this.pointerEnd();this.cameraReady=false; }
   private defaultYaw():number {return this.level.id==='yangtze-cableway'||this.level.network?-Math.PI/2:0;}
   recenter():void { if(this.rideCamera)return;this.manualOrbit=false;this.baseYaw=this.localYaw();this.orbitOffset=0;this.yaw=this.baseYaw;this.pitch=0.58;this.overview=false;this.cameraReady=false; }
-  cameraInfo():{mode:string;yaw:number;baseYaw:number;pitch:number;offset:number;position:number[];target:number[];blocked:boolean;inside:string[];vehiclePosition?:Vec3;transitioning:boolean;actor:ReturnType<Walker['info']>;shadows:boolean} {
+  cameraInfo() {
     const p=this.camera.position.toArray() as Vec3;
-    return {mode:this.viewMode,yaw:this.movementYaw,baseYaw:this.baseYaw,pitch:this.pitch,offset:this.orbitOffset,position:p,target:this.cameraTarget.toArray(),blocked:this.cameraObstructed,inside:this.colliders.filter(c=>sphereInside(p,c)).map(c=>c.id),vehiclePosition:this.rideVehiclePosition,transitioning:this.cameraTransition>0,actor:this.walker.info(),shadows:this.renderer.shadowMap.enabled};
+    return {mode:this.viewMode,yaw:this.movementYaw,baseYaw:this.baseYaw,pitch:this.pitch,offset:this.orbitOffset,position:p,target:this.cameraTarget.toArray(),blocked:this.cameraObstructed,inside:this.colliders.filter(c=>sphereInside(p,c)).map(c=>c.id),vehiclePosition:this.rideVehiclePosition,transitioning:this.cameraTransition>0,actor:this.walker.info(),actorVisible:this.actor.visible,shadows:this.renderer.shadowMap.enabled,lift:this.lift?.info(),escalator:this.escalator?.info()};
   }
   private fadeMeshes: {mesh:THREE.Mesh;minY:number;material:THREE.MeshStandardMaterial}[] = [];
   constructor(private host:HTMLElement,readonly level:Level,onFrame:(dt:number)=>void,onLost:()=>void) {
     this.yaw=this.defaultYaw();this.baseYaw=this.yaw;
     this.level.obstacles=[...(this.level.obstacles??[]),...structuralSolids(level).filter(o=>!this.level.obstacles?.some(s=>s.id===o.id))];
-    this.colliders=level.surfaces.map(surfaceCollider).concat(this.level.obstacles.map(boxCollider));
+    this.colliders=level.surfaces.map(surfaceCollider).concat(this.level.obstacles.filter(s=>s.id!=='lift-interior-reserved').map(boxCollider));
     this.renderer = new THREE.WebGLRenderer({antialias:true,alpha:true,powerPreference:'high-performance'});
     this.renderer.setPixelRatio(Math.min(devicePixelRatio,1.6));
     this.renderer.outputColorSpace=THREE.SRGBColorSpace;
@@ -97,6 +104,7 @@ export class CityScene {
     canvas.addEventListener('pointerup',this.pointerEnd);canvas.addEventListener('pointercancel',this.pointerEnd);
     canvas.addEventListener('lostpointercapture',this.pointerEnd);
     canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();onLost();});host.prepend(canvas);
+    this.signLayer.className='sign-labels';this.signLayer.setAttribute('aria-hidden','true');host.append(this.signLayer);
     this.scene.background=new THREE.Color('#dce9e0');this.scene.fog=new THREE.Fog('#dce9e0',level.network?100:68,level.network?270:230);
     this.scene.add(new THREE.HemisphereLight('#fff8df','#6e8d83',1.7));
     this.sun.position.set(-24,38,20);this.sun.castShadow=true;
@@ -145,25 +153,41 @@ export class CityScene {
     this.ball(this.staticRoot,[x+0.4*size,y+1.6*size,z+0.1],0.52*size,'#a0ad83');
   }
   private sign(pos:Vec3,text:string,width=2.4,height=0.55,color:string=C.teal):void {
-    const canvas=document.createElement('canvas');canvas.width=512;canvas.height=128;
-    const ctx=canvas.getContext('2d')!;ctx.fillStyle=color;ctx.fillRect(0,0,512,128);
-    ctx.fillStyle='#fff8e8';ctx.font='600 52px "Microsoft YaHei", sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(text,256,68,480);
-    const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
-    const m=new THREE.Mesh(new THREE.PlaneGeometry(width,height),new THREE.MeshBasicMaterial({map:texture,side:THREE.DoubleSide}));m.position.set(...pos);this.staticRoot.add(m);
+    const object=createSign(text,width,height,color,this.renderer.capabilities.getMaxAnisotropy());
+    object.position.set(...pos);this.staticRoot.add(object);
+    const label=document.createElement('span');label.className='sign-readable';label.textContent=text;label.hidden=true;this.signLayer.append(label);this.signs.push({object,label});
   }
   private building(pos:Vec3,width:number,depth:number,height:number,color:string):void {
     const[x,y,z]=pos;
-    this.box(this.staticRoot,[x,y+height/2,z],[width,height,depth],color);
+    const seed=x*13.1+z*7.3+height*3.1;
+    const facade=new THREE.Color(color).lerp(new THREE.Color(['#b6c4b6','#d5ba98','#c9cebc','#aabcb7'][Math.floor(random(seed)*4)]),.18+random(seed+1)*.25);
+    this.box(this.staticRoot,[x,y+height/2,z],[width,height,depth],'#'+facade.getHexString());
     this.registerSolid({id:'building-'+pos.join(':'),min:[x-width/2,y,z-depth/2],max:[x+width/2,y+height,z+depth/2]});
-    this.box(this.staticRoot,[x,y+height+0.08,z],[width+0.16,0.16,depth+0.16],C.teal);
-    const rows=Math.max(1,Math.floor(height)),columns=Math.max(1,Math.floor(width/0.85));
+    // Facade detail is decorative, grouped without adding tiny movement/camera obstacles.
+    const details=new THREE.Group();this.staticRoot.add(details);
+    this.box(details,[x,y+height+0.08,z],[width+0.16,0.16,depth+0.16],C.teal);
+    const rows=Math.max(1,Math.floor((height-.2)/1.05)),columns=Math.max(1,Math.floor(width/0.85));
     for(let r=0;r<rows;r++)for(let c=0;c<columns;c++){
-      const xx=x-width/2+(c+0.5)*width/columns;
-      this.box(this.staticRoot,[xx,y+0.65+r*0.98,z+depth/2+0.015],[0.34,0.46,0.04],(r+c)%4===0?'#e8c88b':'#6e8d84');
-      if(c%2===0)this.box(this.staticRoot,[xx,y+0.4+r*0.98,z+depth/2+0.1],[0.5,0.07,0.2],'#bcae8f');
+      const xx=x-width/2+(c+0.5)*width/columns,yy=y+.64+r*1.05,s=seed+r*19+c*5;
+      this.box(details,[xx,yy,z+depth/2+.025],[.34,.46,.04],random(s)>.78?'#e8c88b':random(s+4)>.5?'#6e8d84':'#879f98');
+      if(random(s+1)>.71&&width<9){
+        this.box(details,[xx,yy-.28,z+depth/2+.22],[.62,.08,.44],'#b5b099');
+        this.box(details,[xx,yy-.06,z+depth/2+.41],[.62,.30,.055],'#92a597');
+      }else if(random(s+2)>.82){
+        this.box(details,[xx+.18,yy-.31,z+depth/2+.12],[.26,.18,.18],'#d6d6c7');
+        this.box(details,[xx+.18,yy-.31,z+depth/2+.22],[.17,.10,.015],'#9aa99e');
+      }
     }
-    for(let r=0;r<rows;r++)this.box(this.staticRoot,[x+width/2+0.015,y+0.7+r*0.98,z],[0.04,0.45,0.4],'#849c8c');
-    if(height>3)this.box(this.staticRoot,[x+width*0.2,y+height+0.3,z],[0.65,0.4,0.6],'#d3c6a6');
+    for(let r=0;r<rows;r++)for(let c=0;c<Math.max(1,Math.floor(depth/1.5));c++){
+      const zz=z-depth/2+.75+c*1.4;
+      this.box(details,[x+width/2+.025,y+.7+r*1.05,zz],[.04,.45,.4],random(seed+r*9+c)>.7?'#d9c69a':'#849c8c');
+    }
+    if(height>3){
+      this.box(details,[x+width*.18,y+height+.35,z-.3],[.85,.5,.7],'#c2bca7');
+      this.box(details,[x-width*.22,y+height+.19,z+.35],[.7,.22,.6],'#859e91');
+      this.pole(details,[x+width*.18,y+height+.6,z-.3],.5,.055,'#6e8b7b');
+      if(random(seed+8)>.5)this.box(details,[x-width*.2,y+height+.55,z-depth*.2],[.6,.7,.6],'#acb4a3');
+    }
   }
   private registerSolid(solid:Solid):void {
     if(this.level.obstacles!.some(s=>s.id===solid.id))return;
@@ -245,8 +269,8 @@ export class CityScene {
       this.box(this.staticRoot,[-4,1.8,-23],[68,7,9],'#a6b092');
       this.box(this.staticRoot,[0,4.4,-32],[75,12,9],'#aab397');
       for(let i=0;i<11;i++){
-        const x=-27+i*5.1,z=-30-(i%3)*4,y=6+(i%2)*2;
-        this.building([x,y,z],3+(i%3),3.4,7+(i*3)%9,['#c5c4b0','#d4c5a9','#b9c7b6'][i%3]);
+        const x=-27+i*5.1,z=-30-random(i+20)*8,y=6+random(i+22)*2;
+        this.building([x,y,z],3+random(i)*2,3.4,7+random(i+3)*9,['#c5c4b0','#d4c5a9','#b9c7b6'][Math.floor(random(i+7)*3)]);
       }
       for(let i=0;i<9;i++)this.tree(-22+i*5,7,-23.8,1+(i%3)*0.2);
     }else if(id==='yangtze-cableway'){
@@ -286,11 +310,14 @@ export class CityScene {
     this.box(this.staticRoot,[-24,10.3,-5.6],[14,0.22,4.8],'#9aa88f');
     const train=this.train();this.passengerVehicles.set('rail',train);train.visible=false;
     // No second decorative train is allowed to overlap or contradict the boarded one.
-    this.box(this.staticRoot,[-13.75,3.1,10],[1.25,6.8,1.5],'#85a89b');
-    this.registerSolid({id:'lift-shaft',min:[-14.375,-0.3,9.25],max:[-13.125,6.5,10.75]});
-    for(const y of[0.8,6.8])this.box(this.staticRoot,[-14.4,y,10],[0.05,1.6,1.1],'#365e58');
+    this.lift=new LiftModel(this.level.transports.find(t=>t.kind==='lift')!,this.staticRoot,this.dynamic);
+    this.lift.layout.walls.forEach(wall=>this.registerSolid(wall));
+    // Entry is through E/tap; reserve the shaft from free walking, but its glass
+    // is not an opaque camera volume. The cabin travels entirely outside the slab.
+    if(!this.level.obstacles!.some(s=>s.id===this.lift!.layout.reservation.id))this.level.obstacles!.push(this.lift.layout.reservation);
     for(const z of[-1,4,8])this.box(this.staticRoot,[-16.7,2.6,z],[0.35,5.6,0.35],'#a7b198');
     this.sign([-27,1.5,5.4],'梯道 ↑ 佛图关站',4.1,0.55);
+    this.sign([-21.3,1.55,12.3],'直梯入口 →',3.2,.5);
     this.sign([19,7.8,0.4],'出站梯道 ↓ 观景平台',5,0.55);
     for(const[x,z,h]of[[-33,0,7],[-8,1,8],[27,-4,9],[28,13,7]] as number[][])this.building([x,0,z],3.6,4,h,'#d7c2a1');
     for(const[x,z]of[[-30,15],[-12,14],[7,17],[24,16],[-19,2]])this.tree(x,0,z,1);
@@ -299,13 +326,13 @@ export class CityScene {
     this.building([-4,0,-17],8,4,13,'#d5c4a5');this.building([9,0,-17],5,4,14,'#b9c0ab');
     this.sign([-3,10.3,-14.7],'两路口 · 菜园坝',5,0.65);
     const z0=7,z1=-9;
-    this.beam(this.staticRoot,[2,-0.15,z0],[2,7.85,z1],8,0.45,'#b7aa8b');
+    this.beam(this.staticRoot,[2,-0.58,z0],[2,7.42,z1],8,0.4,'#b7aa8b');
     for(const x of[-2,6])this.beam(this.staticRoot,[x,2.8,z0],[x,10.8,z1],0.3,5.8,'#c5b69a');
     for(const x of[-0.2,2,4.2]){
-      this.beam(this.staticRoot,[x,0.05,z0],[x,8.05,z1],1.7,0.25,'#8a9686');
-      for(let i=0;i<40;i++){const t=i/39;this.box(this.staticRoot,[x,8*t+0.12,z0+(z1-z0)*t],[1.5,0.16,0.42],i%2?'#aba993':'#c9c1a5');}
-      for(const dx of[-0.82,0.82])this.beam(this.staticRoot,[x+dx,0.65,z0],[x+dx,8.65,z1],0.12,0.65,'#869487');
+      this.beam(this.staticRoot,[x,-0.32,z0],[x,7.68,z1],1.7,0.2,'#8a9686');
+      for(const dx of[-0.82,0.82])this.beam(this.staticRoot,[x+dx,0.42,z0],[x+dx,8.42,z1],0.12,0.55,'#869487');
     }
+    this.escalator=new EscalatorModel(this.level.transports.find(t=>t.kind==='escalator')!,this.staticRoot,this.dynamic);
     // A raised 6.3-unit hall leaves room for a shorter indoor follow camera.
     this.beam(this.staticRoot,[2,6.3,z0],[2,14.3,z1],8.4,0.24,'#ded4bc');
     this.colliders.push(beamCollider('escalator-roof',[2,6.3,z0],[2,14.3,z1],8.4,0.24));
@@ -437,6 +464,8 @@ export class CityScene {
   }
   update(state:RunState,reducedMotion:boolean):boolean {
     this.state=state;this.reducedMotion=reducedMotion;
+    // Record boarding immediately, including a skip before the next animation frame.
+    this.lift?.update(state,0,reducedMotion);
     const t=state.ride?this.level.transports.find(t=>t.id===state.ride!.serviceId):undefined;
     const key=t&&(t.kind==='rail'||t.kind==='cableway')?state.generation+':'+state.ride!.id:undefined;
     if(key===this.rideCamera?.key)return false;
@@ -469,6 +498,8 @@ export class CityScene {
     this.renderer.domElement.dataset.cameraYaw=this.movementYaw.toFixed(4);
     this.actor.position.set(...s.position);this.actor.rotation.y=s.facing;
     const transport=s.ride?this.level.transports.find(t=>t.id===s.ride!.serviceId):undefined;
+    this.lift?.update(s,dt,this.reducedMotion);this.escalator?.update(s,dt,this.reducedMotion);
+    if(transport?.kind==='escalator')this.actor.rotation.y=s.ride!.direction?0:Math.PI;
     this.actor.visible=!transport||!this.passengerVehicles.has(transport.kind);
     for(const[kind,vehicle]of this.passengerVehicles){
       const service=this.level.transports.find(t=>t.kind===kind)!;
@@ -488,6 +519,7 @@ export class CityScene {
       this.contactShadow.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),new THREE.Vector3(-gradient[0],1,-gradient[1]).normalize());
     }
     this.environment.update(this.camera,s.paused?0:dt,this.reducedMotion);
+    this.updateSigns();
     if(!this.lowQuality&&(this.shadowAnchor.distanceTo(this.actor.position)>6||!Number.isFinite(this.shadowAnchor.x))){
       this.shadowAnchor.copy(this.actor.position);this.sun.target.position.copy(this.shadowAnchor);
       this.sun.position.copy(this.shadowAnchor).add(new THREE.Vector3(-24,38,20));this.sun.shadow.needsUpdate=true;
@@ -499,6 +531,27 @@ export class CityScene {
     }
     this.renderer.domElement.dataset.drawCalls=String(this.renderer.info.render.calls);this.renderer.domElement.dataset.triangles=String(this.renderer.info.render.triangles);
   }
+  private updateSigns():void {
+    const candidates:{label:HTMLSpanElement;x:number;y:number;distance:number;position:Vec3}[]=[];
+    for(const {object,label}of this.signs){
+      label.hidden=true;const p=object.position,distance=p.distanceTo(this.camera.position);
+      if(distance>34)continue;
+      const projected=this.project(p.toArray() as Vec3,.25),a=this.project([p.x-object.userData.width/2,p.y,p.z]),b=this.project([p.x+object.userData.width/2,p.y,p.z]);
+      const projectedWidth=Math.hypot(a.x-b.x,a.y-b.y),angle=Math.abs((this.camera.position.z-p.z)/Math.max(.01,distance));
+      const top=this.project([p.x,p.y+object.userData.height/2,p.z]),bottom=this.project([p.x,p.y-object.userData.height/2,p.z]);
+      const projectedHeight=Math.hypot(top.x-bottom.x,top.y-bottom.y);
+      if(!projected.visible||projected.y<85||projected.y>this.height-140||projected.x<90||projected.x>this.width-90)continue;
+      if(projectedHeight<22||projectedWidth<object.userData.text.length*12||angle<.55)candidates.push({label,x:projected.x,y:projected.y,distance,position:p.toArray() as Vec3});
+    }
+    const occupied:{x:number;y:number}[]=[];
+    for(const item of candidates.sort((a,b)=>a.distance-b.distance)){
+      if(occupied.length>=2)break;
+      if(occupied.some(p=>Math.abs(p.x-item.x)<180&&Math.abs(p.y-item.y)<35))continue;
+      if(sweepCamera(this.camera.position.toArray() as Vec3,item.position,this.colliders,0).fraction<.96)continue;
+      item.label.hidden=false;item.label.style.left=item.x+'px';item.label.style.top=item.y+'px';occupied.push(item);
+    }
+  }
+  signInfo(){return this.signs.map(({object})=>({...object.userData}));}
   private localYaw():number {
     const state=this.state;if(!state)return this.defaultYaw();
     if(this.level.id==='yangtze-cableway'&&state.surfaceId==='south-steps')return 0;
@@ -628,8 +681,8 @@ export class CityScene {
     canvas.removeEventListener('pointerup',this.pointerEnd);canvas.removeEventListener('pointercancel',this.pointerEnd);canvas.removeEventListener('lostpointercapture',this.pointerEnd);
     this.disposed=true;cancelAnimationFrame(this.animation);this.observer.disconnect();
     const geos=new Set<THREE.BufferGeometry>(),mats=new Set<THREE.Material>(),textures=new Set<THREE.Texture>();
-    this.scene.traverse(o=>{if(o instanceof THREE.Mesh){geos.add(o.geometry);for(const m of Array.isArray(o.material)?o.material:[o.material]){mats.add(m);if(m.map)textures.add(m.map);}}});
+    this.scene.traverse(o=>{if(o instanceof THREE.Mesh){geos.add(o.geometry);for(const m of Array.isArray(o.material)?o.material:[o.material]){mats.add(m);if(m.map)textures.add(m.map);}if(o instanceof THREE.InstancedMesh)o.dispose();}});
     this.materials.forEach(m=>mats.add(m));this.materials.clear();this.sun.shadow.dispose();
-    geos.forEach(g=>g.dispose());textures.forEach(t=>t.dispose());mats.forEach(m=>m.dispose());this.renderer.dispose();this.renderer.domElement.remove();this.scene.clear();
+    geos.forEach(g=>g.dispose());textures.forEach(t=>t.dispose());mats.forEach(m=>m.dispose());this.renderer.dispose();this.renderer.domElement.remove();this.signLayer.remove();this.scene.clear();
   }
 }

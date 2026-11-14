@@ -38,7 +38,7 @@ test('mobile landscape and portrait fit the viewport, while two fingers move and
   await page.setViewportSize({width:390,height:844});
   await expect(page.locator('#move-stick')).toBeInViewport();await expect(page.locator('.game-toolbar')).toBeInViewport();
   expect(await page.evaluate(()=>({w:document.documentElement.scrollWidth,h:document.documentElement.scrollHeight}))).toEqual({w:390,h:844});
-  await page.screenshot({path:'artifacts/v0.6/mobile-portrait.png'});
+  await page.screenshot({path:'artifacts/v0.7/mobile-portrait.png'});
 });
 
 test('thumbstick clears on cancellation, pause, resize and page blur; reduced motion retains readable walking',async({page,context})=>{
@@ -82,10 +82,10 @@ test('a complete Liziba trip uses actual thumbstick touches and on-screen transp
   await page.locator('#interaction button').tap();
   await expect(page.locator('canvas')).toHaveAttribute('data-camera','ride-overview');
   await expect(page.locator('#move-stick')).toHaveAttribute('aria-disabled','true');
-  await page.screenshot({path:'artifacts/v0.6/mobile-rail.png'});
+  await page.screenshot({path:'artifacts/v0.7/mobile-rail.png'});
   await expect.poll(async()=>(await state(page)).phase,{timeout:20000}).toBe('exploring');
   expect((await camera(page)).pitch).toBeCloseTo(saved);await walk([19,6,-4]);await walk([19,0,12]);await walk([12,0,14]);
-  await expect(page.getByRole('dialog')).toContainText('赴约成功');await page.screenshot({path:'artifacts/v0.6/mobile-success.png'});
+  await expect(page.getByRole('dialog')).toContainText('赴约成功');await page.screenshot({path:'artifacts/v0.7/mobile-success.png'});
 });
 
 test('mobile recovery and discovery can both be seen and expanded without blocking the stick',async({page})=>{
@@ -94,7 +94,7 @@ test('mobile recovery and discovery can both be seen and expanded without blocki
   await page.evaluate(()=>(window as any).__journey.place('junction-g',[22,10,-8],92));
   await expect(page.locator('.event-rest')).toContainText('体力 +8');await expect(page.locator('.event-discovery')).toBeVisible();
   await expect(page.locator('#move-stick')).toHaveAttribute('aria-disabled','false');
-  await page.screenshot({path:'artifacts/v0.6/mobile-feedback.png'});
+  await page.screenshot({path:'artifacts/v0.7/mobile-feedback.png'});
   await page.getByRole('button',{name:/展开地点行记/}).tap();expect((await state(page)).paused).toBe(true);
   await expect(page.getByRole('link',{name:'查看地标实景资料 ↗'})).toHaveAttribute('href',/^https:\/\/(www\.cqnews\.net|www\.cq\.gov\.cn|whlyw\.cq\.gov\.cn|dfz\.cq\.gov\.cn)\//);
 });
